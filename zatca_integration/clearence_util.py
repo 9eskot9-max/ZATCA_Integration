@@ -190,7 +190,7 @@ def validate_invoice_dates(doc, company, customer_type):
 def _save_transaction(
     doc, invoice_data, response, payload, backend_time_taken, zatca_time_taken, config
 ):
-    response_data = response.json()
+    response_data = _safe_response_json(response)
     """Save transaction record to database"""
     transaction = frappe.get_doc(
         {
@@ -204,7 +204,7 @@ def _save_transaction(
             "production_csid": config["production_csid"].name,
             "request_body": str(payload),
             "response_code": response.status_code,
-            "response_body": json.dumps(response_data),
+        "response_body": json.dumps(response_data),
             "backend_elapsed_time": backend_time_taken * 1000,
             "zatca_elapsed_time": zatca_time_taken["duration"] * 1000,
             "transaction_time": frappe.utils.now_datetime(),
@@ -215,8 +215,7 @@ def _save_transaction(
 
 def _handle_zatca_response(doc, response, invoice_data, payload, zatca_status):
     """Handle ZATCA API response"""
-    response = response
-    response_json = response.json()
+    response_json = _safe_response_json(response)
     zatca_status_field = response_json.get(zatca_status)
 
     if response.status_code in [200, 202]:
@@ -236,6 +235,26 @@ def _handle_zatca_response(doc, response, invoice_data, payload, zatca_status):
     else:
         _handle_error_response(doc, "FAILED", json.dumps(response_json))
         frappe.throw("Error submitting invoice, Unknown Error")
+
+
+def _safe_response_json(response):
+    """Return a JSON response or a diagnostic-safe fallback.
+
+    FATOORA failures can return an empty/non-JSON body. Calling response.json()
+    directly hides the HTTP status and leaves the invoice in an unexplained
+    draft state. Preserve status/content-type and only a bounded body preview.
+    """
+    try:
+        parsed = response.json()
+        return parsed if isinstance(parsed, dict) else {"data": parsed}
+    except (ValueError, TypeError):
+        raw = (response.text or "").strip()
+        return {
+            "_non_json_response": True,
+            "http_status": response.status_code,
+            "content_type": response.headers.get("Content-Type", ""),
+            "body_preview": raw[:1000],
+        }
 
 
 def _handle_error_response(doc, status, validation_results):
