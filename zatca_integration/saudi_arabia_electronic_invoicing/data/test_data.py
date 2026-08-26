@@ -20,7 +20,9 @@ TEST_ITEM_DATA = {
 
 TEST_CUSTOMER_DATA = {
     "customer_name": "TEST-1 Customer",
-    "customer_group": "All Customer Groups",
+    # All Customer Groups is a tree node and ERPNext rejects it as a party
+    # group. Compliance fixtures must use a non-group leaf.
+    "customer_group": "Commercial",
     # "territory": "Saudi Arabia",
     "custom_country": "Saudi Arabia",
     "customer_name_short": "S-CHEM",
