@@ -9,7 +9,11 @@ from frappe import _
 from frappe.utils.data import get_time
 from frappe.utils.data import getdate
 
-from zatca_integration.common_util import generate_invoice_hash, get_registration_scheme_code
+from zatca_integration.common_util import (
+    generate_invoice_hash,
+    get_registration_scheme_code,
+    validate_company_buyer_identification,
+)
 from zatca_integration.saudi_arabia_electronic_invoicing.utils import (
     get_address,
     get_previous_invoice_counter,
@@ -315,17 +319,13 @@ def invoice_typecode_simplified(invoice, sales_invoice_doc):
 
 
 def get_invoice_type_code(invoice):
-    invoice_type = "0"
-    customer = invoice.customer
     customer = frappe.get_doc("Customer", invoice.customer)
     customer_type = customer.customer_type
     if customer_type == "Company":
-        invoice_type = "0100000"
-    elif customer_type == "Individual":
-        invoice_type = "0200000"
-    else:
-        frappe.throw("Customer Type is not Supported")
-    return invoice_type
+        return "0100000"
+    if customer_type == "Individual":
+        return "0200000"
+    frappe.throw("Customer Type is not Supported")
 
 
 def invoice_typecode_standard(invoice, sales_invoice_doc):
@@ -348,6 +348,66 @@ def invoice_typecode_standard(invoice, sales_invoice_doc):
         return None
 
 
+def order_reference(invoice, sales_invoice_doc):
+    """
+    Adds the <cac:OrderReference> element to the invoice XML using the Sales Invoice
+    `po_no` (Customer's Purchase Order) field.
+
+    This embedding is opt-in per Company: it is only applied when the Company-level
+    checkbox `custom_include_po_no` is ticked. When the checkbox is unticked (default),
+    the XML is generated exactly as before and this function is a no-op.
+
+    Per ZATCA's e-invoicing rules, additional UBL 2.1 elements are permitted as long
+    as the mandatory fields are still present. Customers (e.g. BinDawood / Danube) require
+    the PO Number to be embedded in the signed XML using the standard UBL element:
+
+        <cac:OrderReference>
+            <cbc:ID>{po_no}</cbc:ID>
+            <cbc:SalesOrderID>{po_no}</cbc:SalesOrderID>
+        </cac:OrderReference>
+
+    Constraints enforced by the customer:
+        - Numeric characters only (no letters or special characters)
+        - Exactly 12 numeric digits
+        - Same value in both <cbc:ID> and <cbc:SalesOrderID>
+
+    Per UBL 2.1 sequencing it must be added after the currency codes and before
+    <cac:BillingReference> / <cac:AdditionalDocumentReference>, and before the digital
+    signature is applied.
+    """
+    try:
+        include_po_no = frappe.db.get_value(
+            "Company", sales_invoice_doc.company, "custom_include_po_no"
+        )
+        if not include_po_no:
+            return invoice
+
+        po_no = (getattr(sales_invoice_doc, "po_no", None) or "").strip()
+        if not po_no:
+            return invoice
+
+        # if not (len(po_no) == 12 and po_no.isdigit()):
+        #     frappe.throw(
+        #         _(
+        #             "Customer's Purchase Order No (PO No) on Sales Invoice {0} must be "
+        #             "exactly 12 numeric digits (no letters or special characters) to be "
+        #             "embedded in the ZATCA e-invoice as <cac:OrderReference>. "
+        #             "Current value: {1}"
+        #         ).format(sales_invoice_doc.name, po_no)
+        #     )
+
+        cac_orderreference = ET.SubElement(invoice, "cac:OrderReference")
+        cbc_orderref_id = ET.SubElement(cac_orderreference, CBC_ID)
+        cbc_orderref_id.text = po_no
+        cbc_salesorderid = ET.SubElement(cac_orderreference, "cbc:SalesOrderID")
+        cbc_salesorderid.text = po_no
+
+        return invoice
+    except (ET.ParseError, AttributeError, ValueError) as e:
+        frappe.throw(_(f"Error occurred while adding OrderReference (PO No): {e}"))
+        return None
+
+
 def doc_reference(invoice, sales_invoice_doc):
     """
     Adds document reference elements to the XML invoice,
@@ -358,6 +418,9 @@ def doc_reference(invoice, sales_invoice_doc):
         cbc_documentcurrencycode.text = sales_invoice_doc.currency
         cbc_taxcurrencycode = ET.SubElement(invoice, "cbc:TaxCurrencyCode")
         cbc_taxcurrencycode.text = "SAR"  # SAR is as zatca requires tax amount in SAR
+
+        invoice = order_reference(invoice, sales_invoice_doc)
+
         if sales_invoice_doc.is_return == 1 or sales_invoice_doc.is_debit_note:
             invoice = billing_reference_for_credit_and_debit_note(invoice, sales_invoice_doc)
 
@@ -383,6 +446,8 @@ def doc_reference_compliance(invoice, sales_invoice_doc, compliance_type):
         cbc_documentcurrencycode.text = sales_invoice_doc.currency
         cbc_taxcurrencycode = ET.SubElement(invoice, "cbc:TaxCurrencyCode")
         cbc_taxcurrencycode.text = sales_invoice_doc.currency
+
+        invoice = order_reference(invoice, sales_invoice_doc)
 
         if compliance_type in {"3", "4", "5", "6"}:
             cac_billingreference = ET.SubElement(invoice, "cac:BillingReference")
@@ -567,6 +632,7 @@ def customer_data(invoice, sales_invoice_doc):
     """
     Add customer data (address, registration, tax info) to the XML invoice.
     Skips <PartyIdentification> if registration scheme or number is missing.
+    Non-KSA buyers may omit VAT and registration (ZATCA export rules, Annex 5.3–5.4).
     """
     try:
         customer_doc = frappe.get_doc("Customer", sales_invoice_doc.customer)
@@ -673,16 +739,7 @@ def customer_data(invoice, sales_invoice_doc):
 
 
 def vat_registration_validator(doc):
-    if doc.customer_type == "Company":
-        has_vat = bool(doc.get("custom_vat_number") or doc.get("tax_id"))
-        has_registration_number = bool(doc.get("custom_registration_number"))
-
-        if not (has_vat or has_registration_number):
-            frappe.throw(
-                _(
-                    "Customers of type 'Company' must have at least one of: VAT Number or Registration Number."
-                )
-            )
+    validate_company_buyer_identification(doc)
 
 
 def delivery_and_payment_means(invoice, sales_invoice_doc, is_return):

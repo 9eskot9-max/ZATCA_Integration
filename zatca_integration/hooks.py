@@ -176,6 +176,7 @@ fixtures = [
                     "Bank Account-custom_account_name_in_arabic",
                     # Tax account
                     "Account-custom_tax_type",
+                    "Company-custom_include_po_no",
                 ],
             ]
         ],
@@ -304,8 +305,9 @@ doc_events = {
         "validate": [
             "zatca_integration.common_util.validate_pos_invoice",
             # "zatca_integration.common_util.update_delivery_date",
+            "zatca_integration.customization.sales_invoice.sales_invoice.sync_retention_from_percentage",
             "zatca_integration.customization.sales_invoice.sales_invoice.set_base_retention_amount",
-            "zatca_integration.customization.sales_invoice.sales_invoice.set_grand_total_with_retention",
+            "zatca_integration.customization.sales_invoice.sales_invoice.adjust_outstanding_for_retention",
         ],
         "before_submit": [
             "zatca_integration.common_util.validate_sales_invoice",
@@ -315,7 +317,8 @@ doc_events = {
             "zatca_integration.saudi_arabia_electronic_invoicing.phase_one_utils.create_qr_code",
         ],
         "on_cancel": [
-            "zatca_integration.saudi_arabia_electronic_invoicing.phase_one_utils.delete_qr_code_file"
+            "zatca_integration.saudi_arabia_electronic_invoicing.phase_one_utils.delete_qr_code_file",
+            "zatca_integration.overrides.sales_invoice.on_cancel",
         ],
     },
     "POS Invoice": {
@@ -337,8 +340,10 @@ doc_events = {
 # }
 # }
 
-# TODO: Uncomment when going to simulation or production
 scheduler_events = {
+    "hourly": [
+        "zatca_integration.saudi_arabia_electronic_invoicing.background_task.send_multiple_signed_compliance_invoices_to_zatca",  # noqa: E501
+    ],
     "weekly": [
         "zatca_integration.saudi_arabia_electronic_invoicing.background_task.notify_expiring_csids",  # noqa: E501
     ],
