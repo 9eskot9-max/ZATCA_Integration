@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import frappe
 from frappe import _
 from frappe.utils.data import get_time
+from frappe.utils.data import getdate
 
 from zatca_integration.common_util import (
     generate_invoice_hash,
@@ -24,6 +25,12 @@ from zatca_integration.saudi_arabia_electronic_invoicing.utils import (
 
 CBC_ID = "cbc:ID"
 DS_TRANSFORM = "ds:Transform"
+
+
+def _get_ubl_delivery_date(sales_invoice_doc):
+	"""Use the actual supply date for UBL; payment due date is not a delivery date."""
+	delivery_date = getattr(sales_invoice_doc, "custom_delivery_date", None)
+	return str(getdate(delivery_date or sales_invoice_doc.posting_date))
 
 
 def generate_random_number():
@@ -743,7 +750,7 @@ def delivery_and_payment_means(invoice, sales_invoice_doc, is_return):
     try:
         cac_delivery = ET.SubElement(invoice, "cac:Delivery")
         cbc_actual_delivery_date = ET.SubElement(cac_delivery, "cbc:ActualDeliveryDate")
-        cbc_actual_delivery_date.text = str(sales_invoice_doc.due_date)
+        cbc_actual_delivery_date.text = _get_ubl_delivery_date(sales_invoice_doc)
 
         cac_payment_means = ET.SubElement(invoice, "cac:PaymentMeans")
         cbc_payment_means_code = ET.SubElement(cac_payment_means, "cbc:PaymentMeansCode")
@@ -768,7 +775,7 @@ def delivery_and_payment_means_for_compliance(invoice, sales_invoice_doc, compli
     try:
         cac_delivery = ET.SubElement(invoice, "cac:Delivery")
         cbc_actual_delivery_date = ET.SubElement(cac_delivery, "cbc:ActualDeliveryDate")
-        cbc_actual_delivery_date.text = str(sales_invoice_doc.due_date)
+        cbc_actual_delivery_date.text = _get_ubl_delivery_date(sales_invoice_doc)
 
         cac_payment_means = ET.SubElement(invoice, "cac:PaymentMeans")
         cbc_payment_means_code = ET.SubElement(cac_payment_means, "cbc:PaymentMeansCode")
