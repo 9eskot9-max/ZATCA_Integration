@@ -78,21 +78,27 @@ def create_test_item(company):
 
 
 def create_test_customer(
-    customer_type="Individual", tax_id="300450349600003", vat_number="300450349600003"
+    customer_type="Individual", tax_id=None, vat_number=None, label=None
 ):
-    """Create test customer if it doesn't exist"""
+    """Create a deterministic standard or simplified compliance customer.
+
+    A simplified (B2C) UBL fixture must not contain a buyer VAT identifier.
+    Keep it separate from the standard B2B fixture so a prior test cannot
+    silently turn a simplified invoice into a standard one.
+    """
 
     base_name = TEST_CUSTOMER_DATA["customer_name"]
-    customer_name = f"{base_name} ({customer_type})"
+    customer_name = f"{base_name} ({label or customer_type})"
 
     if not frappe.db.exists("Customer", customer_name):
         customer_data = TEST_CUSTOMER_DATA.copy()
         customer_data.update(
             {
                 "doctype": "Customer",
+                "customer_name": customer_name,
                 "customer_type": customer_type,
-                "tax_id": tax_id,
-                "custom_vat_number": vat_number,
+                "tax_id": tax_id or "",
+                "custom_vat_number": vat_number or "",
             }
         )
 
@@ -101,8 +107,14 @@ def create_test_customer(
         return customer
     else:
         customer = frappe.get_doc("Customer", customer_name)
-        if customer.customer_type != customer_type:
+        if (
+            customer.customer_type != customer_type
+            or customer.tax_id != (tax_id or "")
+            or customer.custom_vat_number != (vat_number or "")
+        ):
             customer.customer_type = customer_type
+            customer.tax_id = tax_id or ""
+            customer.custom_vat_number = vat_number or ""
             customer.save(ignore_permissions=True)
         return customer
 
@@ -201,9 +213,7 @@ def create_test_sales_invoice(csr_data, compliance_name, is_debit=0):
 
     # Create components
     item_data = create_test_item(company)
-    customer = create_test_customer(
-        customer_type="Individual", tax_id="300450349600004", vat_number="300450349600003"
-    )
+    customer = create_test_customer(customer_type="Individual", label="Simplified")
 
     # Create invoice data
     invoice_data = create_base_invoice_data(company, csr_data, compliance_name, customer, item_data)
@@ -231,9 +241,7 @@ def create_test_simplified_debit_sales_invoice(csr_data, compliance_name):
 
     # Create components
     item_data = create_test_item(company)
-    customer = create_test_customer(
-        customer_type="Individual", tax_id="300450349600004", vat_number="300450349600003"
-    )
+    customer = create_test_customer(customer_type="Individual", label="Simplified")
 
     # Create invoice data
     invoice_data = create_base_invoice_data(company, csr_data, compliance_name, customer, item_data)
@@ -260,7 +268,10 @@ def create_standard_test_debit_sales_invoice(csr_data, compliance_name):
     # Create components
     item_data = create_test_item(company)
     customer = create_test_customer(
-        customer_type="Company", tax_id="300450349600003", vat_number="300450349600003"
+        customer_type="Company",
+        tax_id="300450349600003",
+        vat_number="300450349600003",
+        label="Standard",
     )
 
     # Create invoice data
@@ -290,7 +301,10 @@ def create_standard_test_sales_invoice(csr_data, compliance_name):
     # Create components
     item_data = create_test_item(company)
     customer = create_test_customer(
-        customer_type="Company", tax_id="300450349600003", vat_number="300450349600003"
+        customer_type="Company",
+        tax_id="300450349600003",
+        vat_number="300450349600003",
+        label="Standard",
     )
 
     # Create invoice data
