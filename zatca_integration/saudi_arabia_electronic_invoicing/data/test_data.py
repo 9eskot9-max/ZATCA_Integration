@@ -359,6 +359,8 @@ def create_return_invoice_from_original(
 @frappe.whitelist()
 def create_return_invoice(compliance_name):
     """Create return invoice for individual customer"""
+    if frappe.db.exists("Sales Invoice", "TEST-SINV-2025-201"):
+        return "TEST-SINV-2025-201"
     return create_return_invoice_from_original(
         "TEST-SINV-2025-200", "TEST-SINV-2025-201", compliance_name
     )
@@ -367,6 +369,8 @@ def create_return_invoice(compliance_name):
 @frappe.whitelist()
 def create_standard_return_invoice(compliance_name):
     """Create return invoice for company customer"""
+    if frappe.db.exists("Sales Invoice", "TEST-SINV-2025-101"):
+        return "TEST-SINV-2025-101"
     return create_return_invoice_from_original(
         "TEST-SINV-2025-100", "TEST-SINV-2025-101", compliance_name
     )
@@ -551,3 +555,4 @@ def get_cost_center(company):
 
     except Exception as e:
         frappe.throw(f"Error fetching cost center for company '{company}': {e}")
+
