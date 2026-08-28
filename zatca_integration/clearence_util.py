@@ -190,7 +190,17 @@ def validate_invoice_dates(doc, company, customer_type):
 def _save_transaction(
     doc, invoice_data, response, payload, backend_time_taken, zatca_time_taken, config
 ):
-    response_data = _safe_response_json(response)
+    try:
+        response_data = response.json()
+        if not isinstance(response_data, dict):
+            response_data = {"data": response_data}
+    except Exception:
+        response_data = {
+            "_non_json_response": True,
+            "http_status": getattr(response, "status_code", None),
+            "content_type": response.headers.get("Content-Type", "") if getattr(response, "headers", None) else "",
+            "body_preview": (getattr(response, "text", "") or "")[:1000],
+        }
     """Save transaction record to database"""
     transaction = frappe.get_doc(
         {
