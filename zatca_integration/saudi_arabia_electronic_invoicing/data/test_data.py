@@ -22,7 +22,9 @@ TEST_CUSTOMER_DATA = {
     "customer_name": "TEST-1 Customer",
     # All Customer Groups is a tree node and ERPNext rejects it as a party
     # group. Compliance fixtures must use a non-group leaf.
-    "customer_group": "Commercial",
+    # Individual is a confirmed leaf in this site's Customer Group tree.
+    # Use it for compliance fixtures; the fixture customer type is set separately.
+    "customer_group": "Individual",
     # "territory": "Saudi Arabia",
     "custom_country": "Saudi Arabia",
     "customer_name_short": "S-CHEM",
