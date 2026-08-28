@@ -247,7 +247,7 @@ def _safe_response_json(response):
     try:
         parsed = response.json()
         return parsed if isinstance(parsed, dict) else {"data": parsed}
-    except (ValueError, TypeError):
+    except Exception:
         raw = (response.text or "").strip()
         return {
             "_non_json_response": True,
