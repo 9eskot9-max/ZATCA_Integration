@@ -128,7 +128,10 @@ def create_base_invoice_data(company, csr_data, compliance_name, customer, item_
     invoice_data.update(
         {
             "doctype": "Sales Invoice",
-            "customer": customer,
+            # Link fields must receive the customer name, not a Document
+            # instance.  Passing the instance let Frappe resolve a prior
+            # standard fixture in the compliance flow.
+            "customer": customer.name,
             "customer_name": customer.customer_name,
             "company": company,
             "company_tax_id": csr_data.csrorganizationidentifier,
