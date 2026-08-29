@@ -839,6 +839,37 @@ def generate_einvoice_on_submit(doc, method=None):
         generate_einvoice(doc, submit_now=False)
 
 
+def enforce_b2b_clearance_on_submit(doc, method=None):
+    """Prevent a production B2B invoice from posting without FATOORA clearance.
+
+    Simplified/Individual invoices are intentionally excluded: their production path is
+    reporting rather than clearance. Compliance/test invoices are also excluded because
+    they use the separate Compliance CSID workflow.
+    """
+    if doc.get("custom_is_zatca_test"):
+        return
+    company_enabled = frappe.db.get_value(
+        "Company", doc.company, "custom_enable_zatca_e_invoicing"
+    )
+    if not company_enabled:
+        return
+    # Only enforce when clearance is synchronous. `generate_einvoice_on_submit` runs in
+    # before_submit and calls generate_einvoice(submit_now=True) only while auto sales
+    # submission is off. Once it is enabled the call is deferred to a background job, so
+    # the status is legitimately not CLEARED yet and blocking here would reject every
+    # B2B invoice. Failures on the deferred path are caught by monitoring, not by this hook.
+    if get_auto_sales_submission(doc.company):
+        return
+    customer_type = frappe.db.get_value("Customer", doc.customer, "customer_type")
+    if customer_type != "Company":
+        return
+    if doc.get("custom_zatca_submit_status") != "CLEARED":
+        frappe.throw(
+            "B2B Sales Invoice cannot be submitted until FATOORA clearance succeeds. "
+            "Review custom_validation_results and Error Log, then retry the submission."
+        )
+
+
 def bg_generate_einvoice(doc):
     """Background task to generate einvoice"""
     submit_now = get_auto_sales_submission(doc.company)
