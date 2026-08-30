@@ -35,6 +35,15 @@ def is_foreign_customer(customer):
     return bool(country) and country != "Saudi Arabia"
 
 
+def get_customer_vat_number(customer):
+    """KSA buyer VAT (BT-48): prefer custom_vat_number, fall back to ERPNext tax_id."""
+    if isinstance(customer, dict):
+        vat = customer.get("custom_vat_number") or customer.get("tax_id")
+    else:
+        vat = getattr(customer, "custom_vat_number", None) or getattr(customer, "tax_id", None)
+    return (vat or "").strip()
+
+
 def validate_company_buyer_identification(customer):
     """
     ZATCA E-Invoicing Resolution Annex 5.3–5.4:
@@ -44,7 +53,7 @@ def validate_company_buyer_identification(customer):
     if customer.customer_type != "Company" or is_foreign_customer(customer):
         return
 
-    has_vat = bool(customer.custom_vat_number or customer.get("tax_id"))
+    has_vat = bool(get_customer_vat_number(customer))
     has_registration = bool(
         customer.custom_registration_scheme and customer.custom_registration_number
     )
@@ -55,14 +64,45 @@ def validate_company_buyer_identification(customer):
         )
 
 
-def get_buyer_information(customer_name):
+def resolve_customer_address_name(customer_name, invoice_address=None):
+    """Billing address: invoice link, then customer primary, then first dynamic link."""
+    if invoice_address and frappe.db.exists("Address", invoice_address):
+        return invoice_address
+
+    customer = frappe.get_doc("Customer", customer_name)
+    if customer.customer_primary_address and frappe.db.exists(
+        "Address", customer.customer_primary_address
+    ):
+        return customer.customer_primary_address
+
+    customer_link = frappe.get_all(
+        "Dynamic Link",
+        filters={
+            "link_doctype": "Customer",
+            "link_name": customer_name,
+            "parenttype": "Address",
+        },
+        fields=["parent"],
+        limit=1,
+    )
+    if customer_link and frappe.db.exists("Address", customer_link[0].parent):
+        return customer_link[0].parent
+
+    return None
+
+
+def get_buyer_information(customer_name, invoice_address=None):
     customer = frappe.get_doc("Customer", customer_name)
     country_code = get_country_code(customer.custom_country)
 
     if customer.customer_type == "Company":
-        address = frappe.get_doc("Address", customer.customer_primary_address)
-        if not address:
-            frappe.throw("Customer must have a primary address")
+        address_name = resolve_customer_address_name(customer_name, invoice_address)
+        if not address_name:
+            frappe.throw(
+                "Customer must have a billing address. Set Customer Primary Address "
+                "on the Customer, or select Customer Address on the invoice."
+            )
+        address = frappe.get_doc("Address", address_name)
 
         validate_company_buyer_identification(customer)
 
@@ -102,7 +142,7 @@ def get_buyer_information(customer_name):
 
         return {
             "organizationName": customer.customer_name,
-            "vatNumber": customer.custom_vat_number,
+            "vatNumber": get_customer_vat_number(customer),
             "registrationScheme": (
                 get_registration_scheme_code(customer.custom_registration_scheme)
                 if customer.custom_registration_scheme

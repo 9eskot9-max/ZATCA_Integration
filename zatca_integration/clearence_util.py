@@ -359,7 +359,7 @@ def _prepare_invoice_data(doc, config):
 
     # Get seller and buyer information
     seller = get_seller_information(config["compliance_csr"])
-    buyer = get_buyer_information(doc.customer)
+    buyer = get_buyer_information(doc.customer, doc.get("customer_address"))
 
     # Set counters and identifiers
     invoice_number = doc.name

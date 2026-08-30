@@ -11,7 +11,9 @@ from frappe.utils.data import getdate
 
 from zatca_integration.common_util import (
     generate_invoice_hash,
+    get_customer_vat_number,
     get_registration_scheme_code,
+    resolve_customer_address_name,
     validate_company_buyer_identification,
 )
 from zatca_integration.saudi_arabia_electronic_invoicing.utils import (
@@ -650,31 +652,14 @@ def customer_data(invoice, sales_invoice_doc):
             cbc_id_4.set("schemeID", scheme_code)
             cbc_id_4.text = customer_registration_number
 
-        address = None
-
         if customer_doc.customer_type != "Individual":
-            company_address, customer_address = get_address(sales_invoice_doc)
-            address_dict = {
-                "address_line1": customer_address.get("address_line1", ""),
-                "address_line2": customer_address.get("address_line2", ""),
-                "custom_building_number": customer_address.get("address_line2", ""),
-                "city": customer_address.get("city", ""),
-                "pincode": customer_address.get("pincode", ""),
-                "state": customer_address.get("state", "") or "Eastern Province",
-                "country": customer_address.get("country", "Saudi Arabia"),
-            }
-            address = SimpleNamespace(**address_dict)
-
-            # Frappe v13 compatibility
-            if int(frappe.__version__.split(".", maxsplit=1)[0]) == 13:
-                if sales_invoice_doc.customer_address:
-                    address = frappe.get_doc("Address", sales_invoice_doc.customer_address)
-            else:
-                if customer_doc.customer_primary_address:
-                    address = frappe.get_doc("Address", customer_doc.customer_primary_address)
-
-            if not address:
+            address_name = resolve_customer_address_name(
+                sales_invoice_doc.customer,
+                sales_invoice_doc.get("customer_address"),
+            )
+            if not address_name:
                 frappe.throw(_("Customer address is mandatory for non-B2C customers."))
+            address = frappe.get_doc("Address", address_name)
 
             cac_postaladdress_1 = ET.SubElement(cac_party_2, "cac:PostalAddress")
 
@@ -718,10 +703,11 @@ def customer_data(invoice, sales_invoice_doc):
             cbc_identificationcode_1.text = country_code
 
         # Tax Info
+        buyer_vat = get_customer_vat_number(customer_doc)
         cac_partytaxscheme_1 = ET.SubElement(cac_party_2, "cac:PartyTaxScheme")
-        if address and address.country == "Saudi Arabia" and customer_doc.custom_vat_number:
+        if address and address.country == "Saudi Arabia" and buyer_vat:
             cbc_company_id = ET.SubElement(cac_partytaxscheme_1, "cbc:CompanyID")
-            cbc_company_id.text = customer_doc.custom_vat_number
+            cbc_company_id.text = buyer_vat
 
         cac_taxscheme_1 = ET.SubElement(cac_partytaxscheme_1, "cac:TaxScheme")
         cbc_id_5 = ET.SubElement(cac_taxscheme_1, "cbc:ID")

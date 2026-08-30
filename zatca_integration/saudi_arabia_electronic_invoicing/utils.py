@@ -17,6 +17,8 @@ from frappe import _
 from frappe.utils import add_months, get_datetime, get_site_path
 from PIL import Image
 
+from zatca_integration.common_util import resolve_customer_address_name
+
 
 @frappe.whitelist()
 def generate_private_keys(doc_name):
@@ -439,28 +441,10 @@ def get_address(sales_invoice_doc):
 
     # -------- CUSTOMER ADDRESS --------
     customer_doc = frappe.get_doc("Customer", sales_invoice_doc.customer)
-    address_name = None
-
-    # Priority 1: customer_primary_address
-    if customer_doc.customer_primary_address:
-        address_name = customer_doc.customer_primary_address
-    else:
-        # remember to choose customer primary address
-        if customer_doc.customer_type != "Individual":
-            frappe.msgprint("Remember to choose customer primary address on Customer doctype")
-        # Priority 2: Dynamic Link
-        customer_link = frappe.get_all(
-            "Dynamic Link",
-            filters={
-                "link_doctype": "Customer",
-                "link_name": sales_invoice_doc.customer,
-                "parenttype": "Address",
-            },
-            fields=["parent"],
-            limit=1,
-        )
-        if customer_link:
-            address_name = customer_link[0].parent
+    address_name = resolve_customer_address_name(
+        sales_invoice_doc.customer,
+        sales_invoice_doc.get("customer_address"),
+    )
 
     if not address_name:
         if customer_doc.customer_type != "Individual":
