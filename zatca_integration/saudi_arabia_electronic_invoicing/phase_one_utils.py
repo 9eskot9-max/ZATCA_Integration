@@ -9,8 +9,15 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils.data import add_to_date, get_time, getdate
 from pyqrcode import create as qr_create
 
+from zatca_integration.common_util import is_legacy_import
+
 
 def create_qr_code(doc, method=None):
+    # Historical QR evidence belongs in custom_legacy_qr_code.  Never generate a new
+    # Phase-1 QR for an invoice that was issued in the source ERP.
+    if is_legacy_import(doc):
+        return
+
     company = frappe.get_doc("Company", doc.company)
 
     # Check if Company is a Saudi Arabia based company

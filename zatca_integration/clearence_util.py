@@ -19,6 +19,7 @@ from zatca_integration.common_util import (
     generate_invoice_hash,
     get_buyer_information,
     get_seller_information,
+    is_legacy_import,
 )
 from zatca_integration.saudi_arabia_electronic_invoicing.signing_engine.final_invoice_signing import (  # noqa: E501
     process_invoice_for_zatca_submission,
@@ -34,6 +35,12 @@ from zatca_integration.saudi_arabia_electronic_invoicing.utils import (
 
 
 def generate_einvoice(doc, submit_now=True, skip_success_message=False):
+    # This is the central ZATCA hard-stop.  Legacy invoices retain their source
+    # evidence in dedicated fields and must never enter the current ZATCA hash chain,
+    # signing engine, API flow, QR generator, or Zatca Transactions log.
+    if is_legacy_import(doc):
+        return
+
     company = frappe.get_doc("Company", doc.company)
 
     compliance_csid_doc = None
@@ -649,6 +656,8 @@ def resend_einvoice(doc):
 
     if isinstance(doc, dict):
         doc = frappe.get_doc(doc)
+    if is_legacy_import(doc):
+        return {"skipped": True, "message": _("Legacy import: not submitted to ZATCA")}
     generate_einvoice(doc)
 
 
@@ -688,6 +697,12 @@ def bulk_resend_einvoices(invoice_names):
 
             if doc.docstatus != 1:
                 skipped.append({"name": name, "message": _("Not submitted")})
+                continue
+
+            if is_legacy_import(doc):
+                skipped.append(
+                    {"name": name, "message": _("Legacy import: not submitted to ZATCA")}
+                )
                 continue
 
             status = doc.get("custom_zatca_submit_status")
@@ -832,6 +847,9 @@ def get_auto_sales_submission(company):
 
 def generate_einvoice_on_submit(doc, method=None):
     """Generate einvoice on submit"""
+    if is_legacy_import(doc):
+        return
+
     submit_now = get_auto_sales_submission(doc.company)
     if not submit_now:
         generate_einvoice(doc, submit_now=True)
@@ -846,7 +864,7 @@ def enforce_b2b_clearance_on_submit(doc, method=None):
     reporting rather than clearance. Compliance/test invoices are also excluded because
     they use the separate Compliance CSID workflow.
     """
-    if doc.get("custom_is_zatca_test"):
+    if is_legacy_import(doc) or doc.get("custom_is_zatca_test"):
         return
     company_enabled = frappe.db.get_value(
         "Company", doc.company, "custom_enable_zatca_e_invoicing"
@@ -872,6 +890,9 @@ def enforce_b2b_clearance_on_submit(doc, method=None):
 
 def bg_generate_einvoice(doc):
     """Background task to generate einvoice"""
+    if is_legacy_import(doc):
+        return
+
     submit_now = get_auto_sales_submission(doc.company)
     if submit_now:
         generate_einvoice(doc, submit_now=True)

@@ -198,6 +198,9 @@ frappe.ui.form.on('Sales Invoice', {
     },
 
     add_submit_button: frm => {
+       if (frm.doc.custom_is_legacy_import) {
+        return;
+    }
        if (frm.zatca_enabled === false) {
         return;
     }

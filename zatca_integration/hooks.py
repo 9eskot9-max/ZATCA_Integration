@@ -303,6 +303,7 @@ override_doctype_class = {
 doc_events = {
     "Sales Invoice": {
         "validate": [
+            "zatca_integration.common_util.validate_legacy_import",
             "zatca_integration.common_util.validate_pos_invoice",
             # "zatca_integration.common_util.update_delivery_date",
             "zatca_integration.customization.sales_invoice.sales_invoice.sync_retention_from_percentage",

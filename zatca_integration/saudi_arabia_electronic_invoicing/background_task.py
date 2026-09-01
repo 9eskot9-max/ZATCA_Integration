@@ -128,6 +128,7 @@ def _run_send_multiple_signed_compliance_invoices_to_zatca():
                 "docstatus": 1,
                 "posting_date": [">=", cutoff_time.date()],
                 "custom_is_zatca_test": 0,
+                "custom_is_legacy_import": 0,
             },
             fields=["name"],
         )

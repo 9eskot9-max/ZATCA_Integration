@@ -5,7 +5,25 @@ import xml.etree.ElementTree as ET
 import frappe
 
 
+def is_legacy_import(doc):
+    """Return whether a document is a controlled historical import."""
+    return doc.get("custom_is_legacy_import") in (1, "1", True)
+
+
+def validate_legacy_import(doc, method=None):
+    """Keep the ZATCA-exempt legacy classification immutable after creation."""
+    previous = doc.get_doc_before_save()
+    if previous and is_legacy_import(previous) != is_legacy_import(doc):
+        frappe.throw("Legacy Import cannot be changed after the invoice is created.")
+
+
 def validate_sales_invoice(doc, method):
+    # Historic invoices were issued and ZATCA-processed in the source ERP.  They still
+    # post normal ERPNext accounting and stock entries, but must not be held to the
+    # live ZATCA preparation rules of a newly-issued invoice.
+    if is_legacy_import(doc):
+        return
+
     if not doc.taxes_and_charges:
         frappe.throw("Sales Taxes and Charges Template must be provided.")
         
