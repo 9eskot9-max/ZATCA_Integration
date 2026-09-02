@@ -189,23 +189,38 @@ def apply_one_january_2024_legacy_rename(current_name, confirmation):
 
 
 @frappe.whitelist()
-def apply_january_2024_legacy_rename(confirmation):
-    """Rename only the approved 266 January JEs and opening JE after preflight."""
+def apply_january_2024_legacy_rename(confirmation, batch_size=25):
+    """Rename a bounded approved batch and preserve its GL control exactly.
+
+    Cloud requests can time out when hundreds of submitted accounting documents
+    are renamed in one request.  A small, repeatable batch is safer: each call
+    re-runs the approved-scope preflight and validates only its own GL entries.
+    """
     _only_migration_admins()
     if confirmation != CONFIRMATION:
         frappe.throw(_("Exact confirmation is required; no Journal Entry was renamed."))
 
     plan = _plan()
-    old_names = list(plan["mappings"])
+    try:
+        batch_size = int(batch_size)
+    except (TypeError, ValueError):
+        frappe.throw(_("batch_size must be a whole number."))
+    if not 1 <= batch_size <= 50:
+        frappe.throw(_("batch_size must be between 1 and 50."))
+
+    steps = plan["steps"][:batch_size]
+    if not steps:
+        return {"renamed": 0, "remaining": 0, "gl_before": _gl_control([]), "gl_after": _gl_control([])}
+    old_names = [step["from"] for step in steps]
     gl_before = _gl_control(old_names)
     if not gl_before["rows"] or gl_before["debit"] != gl_before["credit"]:
         frappe.throw(_("Pre-rename GL control is not balanced."))
 
     _enable_rename()
-    for step in plan["steps"]:
+    for step in steps:
         frappe.rename_doc("Journal Entry", step["from"], step["to"], merge=False, force=False)
 
-    new_names = list(plan["mappings"].values())
+    new_names = [step["to"] for step in steps]
     if any(not frappe.db.exists("Journal Entry", name) for name in new_names):
         frappe.throw(_("Post-rename document existence check failed."))
     gl_after = _gl_control(new_names)
@@ -214,4 +229,10 @@ def apply_january_2024_legacy_rename(confirmation):
 
     for name in new_names:
         frappe.get_doc("Journal Entry", name).add_comment("Info", "Legacy Journal Entry name restored by approved January-2024 migration.")
-    return {"renamed": len(new_names), "gl_before": gl_before, "gl_after": gl_after, "temporary_names": plan["temporary_names"]}
+    return {
+        "renamed": len(new_names),
+        "remaining": plan["count"] - len(new_names),
+        "gl_before": gl_before,
+        "gl_after": gl_after,
+        "temporary_names": [step["to"] for step in steps if step["temporary"]],
+    }
