@@ -18,6 +18,7 @@ OPENING_CURRENT = "ACC-JV-2026-00045"
 OPENING_LEGACY = "ACC-JV-2024-02189-2"
 EXPECTED_PILOT_COUNT = 266
 CONFIRMATION = "RENAME_JAN_2024_LEGACY_IDS"
+ONE_CONFIRMATION = "RENAME_ONE_JAN_2024_LEGACY_ID"
 
 
 def _only_migration_admins():
@@ -49,22 +50,27 @@ def _pilot_rows():
 
 def _plan():
     rows = _pilot_rows()
+    opening_name = OPENING_CURRENT if frappe.db.exists("Journal Entry", OPENING_CURRENT) else OPENING_LEGACY
     opening = frappe.db.get_value(
-        "Journal Entry", OPENING_CURRENT, ["name", "posting_date", "docstatus"], as_dict=True
+        "Journal Entry", opening_name, ["name", "posting_date", "docstatus"], as_dict=True
     )
     if not opening or opening.docstatus != 1 or str(opening.posting_date) != "2024-01-01":
         frappe.throw(_("Opening Journal Entry precondition failed."))
 
-    mappings = {row.name: _legacy_id(row) for row in rows}
-    mappings[OPENING_CURRENT] = OPENING_LEGACY
-    desired = list(mappings.values())
+    expected = {row.name: _legacy_id(row) for row in rows}
+    expected[opening_name] = OPENING_LEGACY
+    desired = list(expected.values())
     if len(set(desired)) != len(desired):
         duplicates = [name for name, count in Counter(desired).items() if count > 1]
         frappe.throw(_("Duplicate desired legacy names: {0}").format(", ".join(duplicates)))
 
-    current = set(mappings)
+    # A verified pilot rename may already have put one or more documents at the
+    # exact legacy name.  Keep them in the identity audit, but omit them from
+    # the remaining mutation plan so re-running is safe.
+    mappings = {old: new for old, new in expected.items() if old != new}
+    approved_current = set(expected)
     all_names = set(frappe.get_all("Journal Entry", pluck="name", limit_page_length=0))
-    occupied_outside_scope = sorted(name for name in desired if name in all_names and name not in current)
+    occupied_outside_scope = sorted(name for name in desired if name in all_names and name not in approved_current)
     if occupied_outside_scope:
         frappe.throw(_("Legacy names already occupied outside the approved scope: {0}").format(", ".join(occupied_outside_scope)))
 
@@ -95,10 +101,12 @@ def _plan():
 
     return {
         "count": len(mappings),
+        "approved_count": len(expected),
+        "already_correct": len(expected) - len(mappings),
         "mappings": mappings,
         "steps": steps,
         "temporary_names": temporary,
-        "opening": {"current": OPENING_CURRENT, "legacy": OPENING_LEGACY},
+        "opening": {"current": opening_name, "legacy": OPENING_LEGACY},
     }
 
 
@@ -150,6 +158,34 @@ def preflight_january_2024_legacy_rename():
     plan = _plan()
     plan["gl_before"] = _gl_control(list(plan["mappings"]))
     return plan
+
+
+@frappe.whitelist()
+def apply_one_january_2024_legacy_rename(current_name, confirmation):
+    """Prove the framework rename path on one approved submitted pilot JE."""
+    _only_migration_admins()
+    if confirmation != ONE_CONFIRMATION:
+        frappe.throw(_("Exact one-document confirmation is required; no Journal Entry was renamed."))
+
+    plan = _plan()
+    desired_name = plan["mappings"].get(current_name)
+    if not desired_name:
+        frappe.throw(_("The requested Journal Entry is not an unrenamed approved pilot document."))
+    gl_before = _gl_control([current_name])
+    if not gl_before["rows"] or gl_before["debit"] != gl_before["credit"]:
+        frappe.throw(_("Pre-rename GL control is not balanced."))
+
+    _enable_rename()
+    frappe.rename_doc("Journal Entry", current_name, desired_name, merge=False, force=False)
+    if not frappe.db.exists("Journal Entry", desired_name):
+        frappe.throw(_("Post-rename document existence check failed."))
+    gl_after = _gl_control([desired_name])
+    if gl_after != gl_before:
+        frappe.throw(_("Post-rename GL control changed; stop and restore the backup."))
+    frappe.get_doc("Journal Entry", desired_name).add_comment(
+        "Info", "Legacy Journal Entry name restored by approved January-2024 migration pilot."
+    )
+    return {"renamed": {"from": current_name, "to": desired_name}, "gl_before": gl_before, "gl_after": gl_after}
 
 
 @frappe.whitelist()
