@@ -9,7 +9,7 @@ from frappe.utils import flt
 
 
 class CustomSalesInvoice(SalesInvoice):
-    def get_gl_entries(self, warehouse_account=None):
+    def get_gl_entries(self, warehouse_account=None, inventory_account_map=None):
         from erpnext.accounts.general_ledger import merge_similar_entries
 
         gl_entries = []
@@ -48,6 +48,10 @@ class CustomSalesInvoice(SalesInvoice):
 
         self.make_write_off_gl_entry(gl_entries)
         self.make_gle_for_rounding_adjustment(gl_entries)
+
+        # ERPNext v16 stamps transaction currency and rate on every GL entry here.
+        if hasattr(self, "set_transaction_currency_and_rate_in_gl_map"):
+            self.set_transaction_currency_and_rate_in_gl_map(gl_entries)
 
         return gl_entries
 
