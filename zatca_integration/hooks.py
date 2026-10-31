@@ -4,6 +4,17 @@ app_publisher = "Beveren Software"
 app_description = "Saudi Arabia Electronic Invoicing Phase 2"
 app_email = "info@beverensoftware.com"
 app_license = "mit"
+
+# Frappe v16 desktop (apps) screen tile.
+add_to_apps_screen = [
+    {
+        "name": "zatca_integration",
+        "logo": "/assets/sig_warehouse/images/sig-logo.svg",
+        "title": "ZATCA",
+        "route": "/desk/zatca-integrations",
+        "has_permission": "zatca_integration.apps_screen.can_see",
+    }
+]
 # required_apps = []
 
 # Includes in <head>
