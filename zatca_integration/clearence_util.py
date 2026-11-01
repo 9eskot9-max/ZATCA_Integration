@@ -986,8 +986,26 @@ def generate_einvoice_on_submit(doc, method=None):
         generate_einvoice(doc, submit_now=False)
 
 
+def enforce_b2b_clearance_on_submit(doc, method=None):
+    """Preserve the v15 synchronous production B2B clearance gate."""
+    if doc.get("custom_is_zatca_test"):
+        return
+    if not frappe.db.get_value("Company", doc.company, "custom_enable_zatca_e_invoicing"):
+        return
+    if get_auto_sales_submission(doc.company):
+        return
+    if frappe.db.get_value("Customer", doc.customer, "customer_type") != "Company":
+        return
+    if doc.get("custom_zatca_submit_status") != "CLEARED":
+        frappe.throw(
+            "B2B Sales Invoice cannot be submitted until FATOORA clearance succeeds. "
+            "Review custom_validation_results and Error Log, then retry the submission."
+        )
+
+
 def bg_generate_einvoice(doc):
     """Background task to generate einvoice"""
     submit_now = get_auto_sales_submission(doc.company)
     if submit_now:
         generate_einvoice(doc, submit_now=True)
+
