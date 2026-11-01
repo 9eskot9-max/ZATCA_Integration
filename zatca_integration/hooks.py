@@ -358,6 +358,7 @@ doc_events = {
         ],
         "on_submit": [
             "zatca_integration.saudi_arabia_electronic_invoicing.phase_one_utils.create_qr_code",
+            "zatca_integration.clearence_util.enforce_b2b_clearance_on_submit",
         ],
         "on_cancel": [
             "zatca_integration.saudi_arabia_electronic_invoicing.phase_one_utils.delete_qr_code_file",
@@ -498,3 +499,4 @@ scheduler_events = {
 # default_log_clearing_doctypes = {
 # "Logging DocType Name": 30  # days to retain logs
 # }
+
