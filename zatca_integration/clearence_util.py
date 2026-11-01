@@ -19,6 +19,7 @@ from zatca_integration.common_util import (
     generate_invoice_hash,
     get_buyer_information,
     get_seller_information,
+    is_legacy_import,
     validate_company_buyer_identification,
 )
 from zatca_integration.saudi_arabia_electronic_invoicing.signing_engine.final_invoice_signing import (  # noqa: E501
@@ -35,6 +36,11 @@ from zatca_integration.saudi_arabia_electronic_invoicing.utils import (
 
 
 def generate_einvoice(doc, submit_now=True, skip_success_message=False):
+    # Already-imported source invoices must not enter today's ZATCA hash chain,
+    # signing engine, transaction log, or remote API calls.
+    if is_legacy_import(doc):
+        return
+
     company = frappe.get_doc("Company", doc.company)
 
     compliance_csid_doc = None
@@ -196,7 +202,7 @@ def validate_invoice_dates(doc, company, customer_type):
 def _save_transaction(
     doc, invoice_data, response, payload, backend_time_taken, zatca_time_taken, config
 ):
-    response_data = response.json()
+    response_data = _safe_response_json(response)
     """Save transaction record to database"""
     transaction = frappe.get_doc(
         {
@@ -221,8 +227,7 @@ def _save_transaction(
 
 def _handle_zatca_response(doc, response, invoice_data, payload, zatca_status):
     """Handle ZATCA API response"""
-    response = response
-    response_json = response.json()
+    response_json = _safe_response_json(response)
     zatca_status_field = response_json.get(zatca_status)
 
     if response.status_code in [200, 202]:
@@ -242,6 +247,21 @@ def _handle_zatca_response(doc, response, invoice_data, payload, zatca_status):
     else:
         _handle_error_response(doc, "FAILED", json.dumps(response_json))
         frappe.throw("Error submitting invoice, Unknown Error")
+
+
+def _safe_response_json(response):
+    """Return parsed response data or a bounded diagnostic for non-JSON replies."""
+    try:
+        parsed = response.json()
+        return parsed if isinstance(parsed, dict) else {"data": parsed}
+    except Exception:
+        headers = getattr(response, "headers", None) or {}
+        return {
+            "_non_json_response": True,
+            "http_status": getattr(response, "status_code", None),
+            "content_type": headers.get("Content-Type", ""),
+            "body_preview": (getattr(response, "text", "") or "")[:1000],
+        }
 
 
 def _handle_error_response(doc, status, validation_results):
@@ -794,6 +814,8 @@ def resend_einvoice(doc):
 
     if isinstance(doc, dict):
         doc = frappe.get_doc(doc)
+    if is_legacy_import(doc):
+        return {"skipped": True, "message": _("Legacy import: not submitted to ZATCA")}
     generate_einvoice(doc)
 
 
@@ -833,6 +855,12 @@ def bulk_resend_einvoices(invoice_names):
 
             if doc.docstatus != 1:
                 skipped.append({"name": name, "message": _("Not submitted")})
+                continue
+
+            if is_legacy_import(doc):
+                skipped.append(
+                    {"name": name, "message": _("Legacy import: not submitted to ZATCA")}
+                )
                 continue
 
             status = doc.get("custom_zatca_submit_status")
@@ -984,6 +1012,23 @@ def generate_einvoice_on_submit(doc, method=None):
         generate_einvoice(doc, submit_now=True)
     else:
         generate_einvoice(doc, submit_now=False)
+
+
+def enforce_b2b_clearance_on_submit(doc, method=None):
+    """Preserve the v15 synchronous production B2B clearance gate."""
+    if doc.get("custom_is_zatca_test"):
+        return
+    if not frappe.db.get_value("Company", doc.company, "custom_enable_zatca_e_invoicing"):
+        return
+    if get_auto_sales_submission(doc.company):
+        return
+    if frappe.db.get_value("Customer", doc.customer, "customer_type") != "Company":
+        return
+    if doc.get("custom_zatca_submit_status") != "CLEARED":
+        frappe.throw(
+            "B2B Sales Invoice cannot be submitted until FATOORA clearance succeeds. "
+            "Review custom_validation_results and Error Log, then retry the submission."
+        )
 
 
 def bg_generate_einvoice(doc):
