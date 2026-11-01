@@ -1008,4 +1008,3 @@ def bg_generate_einvoice(doc):
     submit_now = get_auto_sales_submission(doc.company)
     if submit_now:
         generate_einvoice(doc, submit_now=True)
-
