@@ -11,6 +11,7 @@ from frappe.utils.data import getdate
 from zatca_integration.common_util import (
     generate_invoice_hash,
     get_country_code,
+    get_customer_vat_number,
     get_registration_scheme_code,
     validate_company_buyer_identification,
 )
@@ -679,9 +680,10 @@ def customer_data(invoice, sales_invoice_doc):
 
         # Tax Info: buyer VAT is written unless the buyer is known to be foreign.
         cac_partytaxscheme_1 = ET.SubElement(cac_party_2, "cac:PartyTaxScheme")
-        if buyer_country_code in ("", "SA") and customer_doc.custom_vat_number:
+        buyer_vat_number = get_customer_vat_number(customer_doc)
+        if buyer_country_code in ("", "SA") and buyer_vat_number:
             cbc_company_id = ET.SubElement(cac_partytaxscheme_1, "cbc:CompanyID")
-            cbc_company_id.text = customer_doc.custom_vat_number
+            cbc_company_id.text = buyer_vat_number
 
         cac_taxscheme_1 = ET.SubElement(cac_partytaxscheme_1, "cac:TaxScheme")
         cbc_id_5 = ET.SubElement(cac_taxscheme_1, "cbc:ID")

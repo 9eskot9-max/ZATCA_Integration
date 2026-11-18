@@ -153,7 +153,24 @@ def is_export_vat_category(value) -> bool:
     return normalize_vat_category(value) in _EXPORT_VAT_NORMALIZED
 
 
+def is_legacy_import(doc):
+    """Return whether this is an already-imported historical Sales Invoice."""
+    return doc.get("custom_is_legacy_import") in (1, "1", True)
+
+
+def validate_legacy_import(doc, method=None):
+    """Keep the ZATCA-exempt classification immutable after invoice creation."""
+    previous = doc.get_doc_before_save()
+    if previous and is_legacy_import(previous) != is_legacy_import(doc):
+        frappe.throw(_("Legacy Import cannot be changed after the invoice is created."))
+
+
 def validate_sales_invoice(doc, method):
+    # Existing historical invoices retain normal ERP accounting, but do not
+    # acquire current ZATCA preparation requirements during a save.
+    if is_legacy_import(doc):
+        return
+
     if not doc.taxes_and_charges:
         frappe.throw("Sales Taxes and Charges Template must be provided.")
 
@@ -180,6 +197,11 @@ def is_foreign_customer(customer) -> bool:
 
     country = str(customer.get("custom_country") or "").strip()
     return bool(country) and country.casefold() != "saudi arabia"
+
+
+def get_customer_vat_number(customer) -> str:
+    """Prefer the SIG VAT field and fall back to ERPNext's standard tax_id."""
+    return str(customer.get("custom_vat_number") or customer.get("tax_id") or "").strip()
 
 
 def validate_ksa_vat_number(vat_number, field_label=None):
@@ -346,11 +368,12 @@ def validate_company_buyer_identification(customer):
     if is_foreign_customer(customer):
         return
 
-    has_vat = bool(customer.custom_vat_number or customer.get("tax_id"))
+    vat_number = get_customer_vat_number(customer)
+    has_vat = bool(vat_number)
     has_registration = bool(registration_scheme and registration_number)
     if has_vat:
         validate_ksa_vat_number(
-            customer.custom_vat_number or customer.get("tax_id"),
+            vat_number,
             field_label=_("VAT Number"),
         )
     if not is_vat_number_required(customer):
@@ -527,7 +550,7 @@ def get_buyer_information(customer_name, address_name=None):
 
     return {
         "organizationName": customer.customer_name,
-        "vatNumber": customer.custom_vat_number,
+        "vatNumber": get_customer_vat_number(customer),
         "registrationScheme": (
             get_registration_scheme_code(customer.custom_registration_scheme)
             if customer.custom_registration_scheme
