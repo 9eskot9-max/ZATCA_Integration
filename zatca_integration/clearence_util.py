@@ -1016,7 +1016,7 @@ def generate_einvoice_on_submit(doc, method=None):
 
 def enforce_b2b_clearance_on_submit(doc, method=None):
     """Preserve the v15 synchronous production B2B clearance gate."""
-    if doc.get("custom_is_zatca_test"):
+    if is_legacy_import(doc) or doc.get("custom_is_zatca_test"):
         return
     if not frappe.db.get_value("Company", doc.company, "custom_enable_zatca_e_invoicing"):
         return
